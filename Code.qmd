@@ -1,0 +1,186 @@
+---
+title: "Code"
+format: html
+---
+
+```{r}
+library(tidyverse)
+library(broom)
+library(haven)
+library(sandwich)
+library(lmtest)
+library(tinytable)
+
+options(tinytable_tt_digits = 3, num_suffix = TRUE)
+options(tinytable_theme_placement_latex_float = "H")
+```
+
+Load packages (hidden).
+```{r}
+#| include: false
+
+path <- "C:/Users/jomas/OneDrive/Dokumente/002_Publications/2025-DISCO-III/data/disco_data.dta"
+
+data_raw <- read_dta(path)
+
+data <- data_raw |> 
+  mutate(
+    across(c(Placebo_yes, 
+             singlecenter, 
+             Recruitpredict, 
+             Industry, 
+             ECapproval_2016), factor))
+```
+
+Custom function for renaming variables
+
+```{r}
+rename_variables <- function(data) {
+  data |> 
+    mutate(term = case_when(
+      term == "ASPIREprop_10" ~ "Proportion of adequate SPIRIT reporting, median (IQR)",
+      term == "samplesize_100" ~ "Planned target sample size, median (IQR)",
+      term == "Placebo_yes1" ~ "Placebo controlled (vs not placebo controlled)",
+      term == "singlecenter1" ~ "Single-center (vs multicenter)",
+      term == "Recruitpredict1" ~ "Reported recruitment projection",
+      term == "Industry1" ~ "Industry sponsorship",
+      .default = term
+    ))
+}
+```
+
+
+```{r}
+# Non-availability of trial results 
+# (considering peer-reviewed publication and trial registries) -------------
+
+model.s7 <- glm(noresultsbefmid2020 ~ ASPIREprop_10 + samplesize_100 + Placebo_yes + 
+             singlecenter + Recruitpredict + Industry + ECapproval_2016,
+             family = binomial(link = "logit"),
+             data = data)
+
+# summary(model.s7)
+tidy(model.s7, conf.int = TRUE, exponentiate = TRUE) |>
+  mutate(p.value = scales::pvalue(p.value)) |> 
+  tt(num_fmt = "decimal", num_zero = TRUE)
+
+
+coeftest(model.s7,
+    vcov = vcovCL(model.s7,
+                cluster = ~ country_ethics_committee,
+                type = "HC3")) |> 
+  tidy(conf.int = TRUE) |> 
+  mutate(estimate = exp(estimate),
+         p.value = scales::pvalue(p.value))
+
+
+# Discontinued due to poor recruitment ----------------
+
+model.s7.b <- glm(disco_poor_recr ~ ASPIREprop_10 + samplesize_100 + Placebo_yes + 
+             singlecenter + Recruitpredict + Industry + ECapproval_2016,
+             family = binomial(link = "logit"),
+             data = data[data$Discontinued != "NR", ])
+
+# summary(model.s7.b)
+tidy(model.s7.b, conf.int = TRUE, exponentiate = TRUE) |> 
+  rename_variables()
+
+coeftest(model.s7.b,
+    vcov = vcovCL(model.s7.b,
+                cluster = ~ country_ethics_committee,
+                type = "HC3")) |> 
+  tidy(conf.int = TRUE) |> 
+  mutate(estimate = exp(estimate),
+         p.value = round(p.value, digits = 5)) |> 
+  rename_variables()
+
+```
+
+For 2016 only (Table 4)
+
+
+Univariable
+```{r}
+# List of predictor variables
+predictors <- c("ASPIREprop_10", "samplesize_100", "Placebo_yes", 
+                "singlecenter", "Recruitpredict", "Industry")
+
+# Function to run univariable model with clustering adjustment
+run_univariable_model <- function(predictor) {
+  formula <- as.formula(paste("noresultsbefmid2020 ~", predictor))
+  
+  # Fit the model
+  model <- glm(formula,
+               family = binomial(link = "logit"),
+               data = data[data$ECapproval_2016 == 1, ])
+  
+  # Get cluster-robust standard errors
+  robust_results <- coeftest(model,
+                            vcov = vcovCL(model,
+                                        cluster = ~ country_ethics_committee,
+                                        type = "HC3")) |> 
+    tidy(conf.int = TRUE) |> 
+    mutate(estimate = exp(estimate),
+           p.value = round(p.value, digits = 5))
+  
+  # Add predictor name
+  robust_results$predictor <- predictor
+  
+  return(robust_results)
+}
+
+# Run models for all predictors
+univariable_results <- lapply(predictors, run_univariable_model) |>
+  bind_rows()
+
+univariable_results |>
+  select(predictor, term, estimate, std.error, conf.low, conf.high, p.value) |>
+  arrange(predictor) |> 
+  filter(term != "(Intercept)") |> 
+  rename_variables()
+```
+
+
+```{r}
+# Non-availability of trial results ----------------
+model.4.a <- glm(noresultsbefmid2020 ~ ASPIREprop_10 + samplesize_100 + Placebo_yes + 
+             singlecenter + Recruitpredict + Industry,
+             family = binomial(link = "logit"),
+             data = data[data$ECapproval_2016 == 1, ])
+
+# summary(model.4.a)
+tidy(model.4.a, conf.int = TRUE, exponentiate = TRUE) |> 
+  rename_variables()
+
+
+coeftest(model.4.a,
+    vcov = vcovCL(model.4.a,
+                cluster = ~ country_ethics_committee,
+                type = "HC3")) |> 
+  tidy(conf.int = TRUE) |> 
+  mutate(estimate = exp(estimate),
+         p.value = round(p.value, digits = 5)) |> 
+  rename_variables()
+  
+
+
+# Discontinued due to poor recruitment --------------
+
+model.4.b <- glm(disco_poor_recr ~ ASPIREprop_10 + samplesize_100 + Placebo_yes + 
+             singlecenter + Recruitpredict + Industry,
+             family = binomial(link = "logit"),
+             data = data[data$ECapproval_2016 == 1 & data$Discontinued != "NR", ])
+
+# summary(model.4.b)
+tidy(model.4.b, conf.int = TRUE, exponentiate = TRUE)
+
+coeftest(model.4.b,
+    vcov = vcovCL(model.4.b,
+                cluster = ~ country_ethics_committee,
+                type = "HC3")) |> 
+  tidy(conf.int = TRUE) |> 
+  mutate(estimate = exp(estimate),
+         p.value = round(p.value, digits = 5)) |> 
+  rename_variables()
+```
+
