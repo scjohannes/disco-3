@@ -1,0 +1,36 @@
+
+\documentclass{standalone}
+\usepackage{tabularray}
+\usepackage{graphicx}
+\usepackage{rotating}
+\usepackage{float}
+\usepackage[normalem]{ulem}
+\usepackage[x11names, svgnames]{xcolor}
+\UseTblrLibrary{booktabs}
+\UseTblrLibrary{siunitx}
+\newcommand{\tinytableTabularrayUnderline}[1]{\underline{#1}}
+\newcommand{\tinytableTabularrayStrikeout}[1]{\sout{#1}}
+\NewTableCommand{\tinytableDefineColor}[3]{\definecolor{#1}{#2}{#3}}
+\begin{document}
+\minipage{\textwidth}
+\begin{table}[H]
+\centering
+\begin{tblr}[         %% tabularray outer open
+]                     %% tabularray outer close
+{                     %% tabularray inner open
+colspec={Q[]Q[]Q[]Q[]},
+}                     %% tabularray inner close
+\toprule
+term & OR & 95% CI & P-value \\ \midrule %% TinyTableHeader
+Proportion of adequate SPIRIT reporting, median (IQR) & 1.05 & 0.70  -  1.57 & 0.825 \\
+Planned target sample size, median (IQR) & 0.96 & 0.92  -  1.01 & 0.129 \\
+Placebo controlled (vs not placebo controlled) & 1.96 & 0.22  -  17.10 & 0.544 \\
+Single-center (vs multicenter) & 1.02 & 0.61  -  1.70 & 0.943 \\
+Reported recruitment projection & 0.61 & 0.34  -  1.09 & 0.097 \\
+Industry sponsorship & 0.32 & 0.16  -  0.64 & 0.001 \\
+\bottomrule
+\end{tblr}
+\end{table}
+\endminipage
+\end{document}
+

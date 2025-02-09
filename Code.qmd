@@ -15,7 +15,7 @@ options(tinytable_tt_digits = 3, num_suffix = TRUE)
 options(tinytable_theme_placement_latex_float = "H")
 ```
 
-Load packages (hidden).
+Load data (hidden).
 ```{r}
 #| include: false
 
@@ -23,6 +23,7 @@ path <- "C:/Users/jomas/OneDrive/Dokumente/002_Publications/2025-DISCO-III/data/
 
 data_raw <- read_dta(path)
 
+#correctly format factors
 data <- data_raw |> 
   mutate(
     across(c(Placebo_yes, 
@@ -44,11 +45,27 @@ rename_variables <- function(data) {
       term == "singlecenter1" ~ "Single-center (vs multicenter)",
       term == "Recruitpredict1" ~ "Reported recruitment projection",
       term == "Industry1" ~ "Industry sponsorship",
+      term == "ECapproval_20161" ~ "Approval in 2016 (vs 2012)",
       .default = term
     ))
 }
+
+format_model_output <- function(data, accuracy = 0.01) {
+  data |>
+    rename_variables() |> 
+    mutate(p.value = scales::pvalue(p.value),
+           estimate = scales::number(estimate, accuracy = accuracy),
+           conf.high = scales::number(conf.high, accuracy = accuracy),
+           conf.low = scales::number(conf.low, accuracy = accuracy),
+           `95% CI` = paste(conf.low, " - ", conf.high)) |> 
+    select(-c(std.error, statistic, conf.low, conf.high)) |> 
+    rename(OR = estimate,
+           `P-value` = p.value) |> 
+    relocate(term, OR, `95% CI`)
+}
 ```
 
+Supplementary Table S7
 
 ```{r}
 # Non-availability of trial results 
@@ -59,19 +76,28 @@ model.s7 <- glm(noresultsbefmid2020 ~ ASPIREprop_10 + samplesize_100 + Placebo_y
              family = binomial(link = "logit"),
              data = data)
 
-# summary(model.s7)
+summary(model.s7)
+
+# Non-Robust SEs
 tidy(model.s7, conf.int = TRUE, exponentiate = TRUE) |>
-  mutate(p.value = scales::pvalue(p.value)) |> 
-  tt(num_fmt = "decimal", num_zero = TRUE)
+  filter(term != "(Intercept)") |> 
+  format_model_output() |> 
+  tt() |> 
+  save_tt(output = "tables/table-s7a-non-robust-se.docx")
 
-
+# Robust SEs
 coeftest(model.s7,
     vcov = vcovCL(model.s7,
                 cluster = ~ country_ethics_committee,
                 type = "HC3")) |> 
   tidy(conf.int = TRUE) |> 
   mutate(estimate = exp(estimate),
-         p.value = scales::pvalue(p.value))
+         conf.low = exp(conf.low),
+         conf.high = exp(conf.high)) |> 
+  filter(term != "(Intercept)") |> 
+  format_model_output() |> 
+  tt() |> 
+  save_tt(output = "tables/table-s7a-robust-se.docx")
 
 
 # Discontinued due to poor recruitment ----------------
@@ -81,18 +107,28 @@ model.s7.b <- glm(disco_poor_recr ~ ASPIREprop_10 + samplesize_100 + Placebo_yes
              family = binomial(link = "logit"),
              data = data[data$Discontinued != "NR", ])
 
-# summary(model.s7.b)
-tidy(model.s7.b, conf.int = TRUE, exponentiate = TRUE) |> 
-  rename_variables()
+# Non robust SEs
+summary(model.s7.b)
 
+tidy(model.s7.b, conf.int = TRUE, exponentiate = TRUE) |> 
+  filter(term != "(Intercept)") |> 
+  format_model_output() |> 
+  tt() |> 
+  save_tt(output = "tables/table-s7b-non-robust-se.docx")
+
+# Robust SEs
 coeftest(model.s7.b,
     vcov = vcovCL(model.s7.b,
                 cluster = ~ country_ethics_committee,
                 type = "HC3")) |> 
   tidy(conf.int = TRUE) |> 
   mutate(estimate = exp(estimate),
-         p.value = round(p.value, digits = 5)) |> 
-  rename_variables()
+         conf.low = exp(conf.low),
+         conf.high = exp(conf.high)) |> 
+  filter(term != "(Intercept)") |> 
+  format_model_output() |> 
+  tt() |> 
+  save_tt(output = "tables/table-s7b-robust-se.docx")
 
 ```
 
@@ -121,7 +157,8 @@ run_univariable_model <- function(predictor) {
                                         type = "HC3")) |> 
     tidy(conf.int = TRUE) |> 
     mutate(estimate = exp(estimate),
-           p.value = round(p.value, digits = 5))
+           conf.low = exp(conf.low),
+           conf.high = exp(conf.high))
   
   # Add predictor name
   robust_results$predictor <- predictor
@@ -134,10 +171,12 @@ univariable_results <- lapply(predictors, run_univariable_model) |>
   bind_rows()
 
 univariable_results |>
-  select(predictor, term, estimate, std.error, conf.low, conf.high, p.value) |>
   arrange(predictor) |> 
   filter(term != "(Intercept)") |> 
-  rename_variables()
+  format_model_output() |> 
+  select(-predictor) |> 
+  tt() |> 
+  save_tt(output = "tables/table-4-univariate.docx")
 ```
 
 
@@ -148,9 +187,12 @@ model.4.a <- glm(noresultsbefmid2020 ~ ASPIREprop_10 + samplesize_100 + Placebo_
              family = binomial(link = "logit"),
              data = data[data$ECapproval_2016 == 1, ])
 
-# summary(model.4.a)
+summary(model.4.a)
+
 tidy(model.4.a, conf.int = TRUE, exponentiate = TRUE) |> 
-  rename_variables()
+    filter(term != "(Intercept)") |> 
+  format_model_output() |> 
+  tt()
 
 
 coeftest(model.4.a,
@@ -159,8 +201,11 @@ coeftest(model.4.a,
                 type = "HC3")) |> 
   tidy(conf.int = TRUE) |> 
   mutate(estimate = exp(estimate),
-         p.value = round(p.value, digits = 5)) |> 
-  rename_variables()
+         conf.low = exp(conf.low),
+         conf.high = exp(conf.high)) |> 
+  filter(term != "(Intercept)") |> 
+  format_model_output() |> 
+  tt()
   
 
 
@@ -171,8 +216,13 @@ model.4.b <- glm(disco_poor_recr ~ ASPIREprop_10 + samplesize_100 + Placebo_yes 
              family = binomial(link = "logit"),
              data = data[data$ECapproval_2016 == 1 & data$Discontinued != "NR", ])
 
-# summary(model.4.b)
-tidy(model.4.b, conf.int = TRUE, exponentiate = TRUE)
+summary(model.4.b)
+
+tidy(model.4.b, conf.int = TRUE, exponentiate = TRUE) |> 
+  filter(term != "(Intercept)") |> 
+  format_model_output() |> 
+  tt() |> 
+  save_tt(output = "tables/table-4-non-robust-se.docx")
 
 coeftest(model.4.b,
     vcov = vcovCL(model.4.b,
@@ -180,7 +230,11 @@ coeftest(model.4.b,
                 type = "HC3")) |> 
   tidy(conf.int = TRUE) |> 
   mutate(estimate = exp(estimate),
-         p.value = round(p.value, digits = 5)) |> 
-  rename_variables()
+         conf.low = exp(conf.low),
+         conf.high = exp(conf.high)) |> 
+  filter(term != "(Intercept)") |> 
+  format_model_output() |> 
+  tt() |> 
+  save_tt(output = "tables/table-4-robust-se.docx")
 ```
 
