@@ -1,10 +1,17 @@
 ---
-title: "Code"
-format: html
+title: "Disco III Cluster Robust SEs"
+format: docx
+author: Johannes Schwenke
+date: today
 ---
 
+## Setup
+
 ```{r}
+#| output: false
+
 library(tidyverse)
+library(lme4)
 library(broom)
 library(haven)
 library(sandwich)
@@ -15,10 +22,9 @@ options(tinytable_tt_digits = 3, num_suffix = TRUE)
 options(tinytable_theme_placement_latex_float = "H")
 ```
 
-Load data (hidden).
-```{r}
-#| include: false
+## Load Data
 
+```{r}
 path <- "C:/Users/jomas/OneDrive/Dokumente/002_Publications/2025-DISCO-III/data/disco_data.dta"
 
 data_raw <- read_dta(path)
@@ -33,7 +39,7 @@ data <- data_raw |>
              ECapproval_2016), factor))
 ```
 
-Custom function for renaming variables
+## Custom Functions
 
 ```{r}
 rename_variables <- function(data) {
@@ -63,83 +69,6 @@ format_model_output <- function(data, accuracy = 0.01) {
            `P-value` = p.value) |> 
     relocate(term, OR, `95% CI`)
 }
-```
-
-Supplementary Table S7
-
-```{r}
-# Non-availability of trial results 
-# (considering peer-reviewed publication and trial registries) -------------
-
-model.s7 <- glm(noresultsbefmid2020 ~ ASPIREprop_10 + samplesize_100 + Placebo_yes + 
-             singlecenter + Recruitpredict + Industry + ECapproval_2016,
-             family = binomial(link = "logit"),
-             data = data)
-
-summary(model.s7)
-
-# Non-Robust SEs
-tidy(model.s7, conf.int = TRUE, exponentiate = TRUE) |>
-  filter(term != "(Intercept)") |> 
-  format_model_output() |> 
-  tt() |> 
-  save_tt(output = "tables/table-s7a-non-robust-se.docx")
-
-# Robust SEs
-coeftest(model.s7,
-    vcov = vcovCL(model.s7,
-                cluster = ~ country_ethics_committee,
-                type = "HC3")) |> 
-  tidy(conf.int = TRUE) |> 
-  mutate(estimate = exp(estimate),
-         conf.low = exp(conf.low),
-         conf.high = exp(conf.high)) |> 
-  filter(term != "(Intercept)") |> 
-  format_model_output() |> 
-  tt() |> 
-  save_tt(output = "tables/table-s7a-robust-se.docx")
-
-
-# Discontinued due to poor recruitment ----------------
-
-model.s7.b <- glm(disco_poor_recr ~ ASPIREprop_10 + samplesize_100 + Placebo_yes + 
-             singlecenter + Recruitpredict + Industry + ECapproval_2016,
-             family = binomial(link = "logit"),
-             data = data[data$Discontinued != "NR", ])
-
-# Non robust SEs
-summary(model.s7.b)
-
-tidy(model.s7.b, conf.int = TRUE, exponentiate = TRUE) |> 
-  filter(term != "(Intercept)") |> 
-  format_model_output() |> 
-  tt() |> 
-  save_tt(output = "tables/table-s7b-non-robust-se.docx")
-
-# Robust SEs
-coeftest(model.s7.b,
-    vcov = vcovCL(model.s7.b,
-                cluster = ~ country_ethics_committee,
-                type = "HC3")) |> 
-  tidy(conf.int = TRUE) |> 
-  mutate(estimate = exp(estimate),
-         conf.low = exp(conf.low),
-         conf.high = exp(conf.high)) |> 
-  filter(term != "(Intercept)") |> 
-  format_model_output() |> 
-  tt() |> 
-  save_tt(output = "tables/table-s7b-robust-se.docx")
-
-```
-
-For 2016 only (Table 4)
-
-
-Univariable
-```{r}
-# List of predictor variables
-predictors <- c("ASPIREprop_10", "samplesize_100", "Placebo_yes", 
-                "singlecenter", "Recruitpredict", "Industry")
 
 # Function to run univariable model with clustering adjustment
 run_univariable_model <- function(predictor) {
@@ -166,19 +95,174 @@ run_univariable_model <- function(predictor) {
   return(robust_results)
 }
 
+format_mult_model_output <- function(data) {
+  data |> 
+  data.frame() |> 
+  rownames_to_column("term") |>
+  rename(
+    estimate = Estimate,
+    std.error = Std..Error,
+    statistic = z.value,
+    p.value = Pr...z..) |> 
+  mutate(
+    conf.low = estimate - (1.96 * std.error),
+    conf.high = estimate + (1.96 * std.error),
+    estimate = exp(estimate),
+    conf.low = exp(conf.low),
+    conf.high = exp(conf.high)
+         )
+}
+```
+
+## Regression
+
+Every code chunk aims to replicate the results from Beni's Stata code with naive standard errors. I then calculate cluster robust standard errors. I used type HC3, which applies small sample bias adjustment, as we only have 4 clusters.
+
+> HC0 applies no small sample bias adjustment. HC1 applies a degrees of freedom-based correction, (n−1)/(n−k) where n is the number of observations and k is the number of explanatory or predictor variables in the model. HC1 is the most commonly used approach for linear models, and HC0 otherwise. Hence these are the defaults in `vcovCL`. However, HC0 and HC1 are less effective than HC2 and HC3 when the number of clusters is relatively small (Cameron et al. 2008). HC2 and HC3 types of bias adjustment are geared towards the linear model, but they are also applicable for GLMs (see Bell and McCaffrey 2002, and Kauermann and Carroll 2001, for details).
+
+See [Sandwich Documentation](https://sandwich.r-forge.r-project.org/reference/vcovCL.html).
+
+### Supplementary Table S7
+
+```{r}
+# Non-availability of trial results -------------
+
+model.s7 <- glm(noresultsbefmid2020 ~ ASPIREprop_10 + samplesize_100 + Placebo_yes + 
+             singlecenter + Recruitpredict + Industry + ECapproval_2016,
+             family = binomial(link = "logit"),
+             data = data)
+
+summary(model.s7)
+
+# Naive SEs
+table_s7_a_naive <- tidy(model.s7, conf.int = TRUE, exponentiate = TRUE) |>
+  filter(term != "(Intercept)") |> 
+  format_model_output() |> 
+  tt()
+
+table_s7_a_naive |> 
+  save_tt(output = "tables/table-s7a-non-robust-se.docx", overwrite = TRUE)
+
+table_s7_a_naive
+
+# Robust SEs
+table_s7_a_robust <- coeftest(model.s7,
+    vcov = vcovCL(model.s7,
+                cluster = ~ country_ethics_committee,
+                type = "HC3")) |> 
+  tidy(conf.int = TRUE) |> 
+  mutate(estimate = exp(estimate),
+         conf.low = exp(conf.low),
+         conf.high = exp(conf.high)) |> 
+  filter(term != "(Intercept)") |> 
+  format_model_output() |> 
+  tt()
+
+table_s7_a_robust |> 
+  save_tt(output = "tables/table-s7a-robust-se.docx", overwrite = TRUE)
+
+table_s7_a_robust
+
+# Mixed model with random intercept
+
+model.s7.ri <- glmer(
+  noresultsbefmid2020 ~ ASPIREprop_10 + samplesize_100 + Placebo_yes + 
+    singlecenter + Recruitpredict + Industry + ECapproval_2016 + 
+    (1 | country_ethics_committee),
+             family = binomial(link = "logit"),
+             data = data)
+
+summary(model.s7.ri)
+
+summary(model.s7.ri)$coefficients |> 
+  format_mult_model_output () |> 
+  filter(term != "(Intercept)") |> 
+  format_model_output() |> 
+  tt()
+
+# Discontinued due to poor recruitment ----------------
+
+model.s7.b <- glm(disco_poor_recr ~ ASPIREprop_10 + samplesize_100 + Placebo_yes + 
+             singlecenter + Recruitpredict + Industry + ECapproval_2016,
+             family = binomial(link = "logit"),
+             data = data[data$Discontinued != "NR", ])
+
+# Naive SEs
+summary(model.s7.b)
+
+table_s7_b_naive <- tidy(model.s7.b, conf.int = TRUE, exponentiate = TRUE) |> 
+  filter(term != "(Intercept)") |> 
+  format_model_output() |> 
+  tt()
+
+table_s7_b_naive |> 
+  save_tt(output = "tables/table-s7b-non-robust-se.docx", overwrite = TRUE)
+
+table_s7_b_naive
+
+# Robust SEs
+table_s7_b_robust  <- coeftest(model.s7.b,
+    vcov = vcovCL(model.s7.b,
+                cluster = ~ country_ethics_committee,
+                type = "HC3")) |> 
+  tidy(conf.int = TRUE) |> 
+  mutate(estimate = exp(estimate),
+         conf.low = exp(conf.low),
+         conf.high = exp(conf.high)) |> 
+  filter(term != "(Intercept)") |> 
+  format_model_output() |> 
+  tt()
+
+table_s7_b_robust |> 
+  save_tt(output = "tables/table-s7b-robust-se.docx", overwrite = TRUE)
+
+table_s7_b_robust
+
+# With random intercept
+
+model.s7b.ri <- glmer(disco_poor_recr ~ ASPIREprop_10 + samplesize_100 + 
+                       Placebo_yes + singlecenter + Recruitpredict + 
+                       Industry + ECapproval_2016 + (1 | country_ethics_committee),
+             family = binomial(link = "logit"),
+             data = data[data$Discontinued != "NR", ])
+
+summary(model.s7b.ri) # Fails to estimate variance of random intercept
+
+summary(model.s7b.ri)$coefficients |> 
+  format_mult_model_output () |> 
+  filter(term != "(Intercept)") |> 
+  format_model_output() |> 
+  tt()
+
+```
+
+### Manuscript Table 4
+
+#### Univariable analysis
+
+Didn't calculate naive SEs.
+
+```{r}
+# List of predictor variables
+predictors <- c("ASPIREprop_10", "samplesize_100", "Placebo_yes", 
+                "singlecenter", "Recruitpredict", "Industry")
+
 # Run models for all predictors
 univariable_results <- lapply(predictors, run_univariable_model) |>
   bind_rows()
 
-univariable_results |>
+table_4_univ_robust <- univariable_results |>
   arrange(predictor) |> 
   filter(term != "(Intercept)") |> 
   format_model_output() |> 
   select(-predictor) |> 
-  tt() |> 
-  save_tt(output = "tables/table-4-univariate.docx")
-```
+  tt()
 
+table_4_univ_robust |> 
+  save_tt(output = "tables/table-4-univariate.docx", overwrite = TRUE)
+
+table_4_univ_robust
+```
 
 ```{r}
 # Non-availability of trial results ----------------
@@ -189,14 +273,74 @@ model.4.a <- glm(noresultsbefmid2020 ~ ASPIREprop_10 + samplesize_100 + Placebo_
 
 summary(model.4.a)
 
-tidy(model.4.a, conf.int = TRUE, exponentiate = TRUE) |> 
+table_4_a_naive <- tidy(model.4.a, conf.int = TRUE, exponentiate = TRUE) |> 
     filter(term != "(Intercept)") |> 
   format_model_output() |> 
   tt()
 
+table_4_a_naive |> 
+  save_tt(output = "tables/table-4a-naive.docx", overwrite = TRUE)
 
-coeftest(model.4.a,
+table_4_a_naive
+
+# Robust SEs
+
+table_4_a_robust <- coeftest(model.4.a,
     vcov = vcovCL(model.4.a,
+                cluster = ~ country_ethics_committee,
+                type = "HC3")) |> 
+  tidy(conf.int = TRUE) |> 
+  mutate(estimate = exp(estimate),
+         conf.low = exp(conf.low),
+         conf.high = exp(conf.high)) |> 
+  filter(term != "(Intercept)") |> 
+  format_model_output() |> 
+  tt() 
+
+table_4_a_robust |> 
+  save_tt(output = "tables/table-4a-robust.docx", overwrite = TRUE)
+
+table_4_a_robust
+
+# Random intercecpt
+
+model.4.a.ri <- glmer(noresultsbefmid2020 ~ ASPIREprop_10 + samplesize_100 +
+                        Placebo_yes + singlecenter + Recruitpredict + 
+                        Industry + (1 | country_ethics_committee),
+             family = binomial(link = "logit"),
+             data = data[data$ECapproval_2016 == 1, ])
+
+summary(model.4.a.ri) # Fails to estimate variance of random intercept
+
+summary(model.4.a.ri)$coefficients |> 
+  format_mult_model_output () |> 
+  filter(term != "(Intercept)") |> 
+  format_model_output() |> 
+  tt()
+  
+# Discontinued due to poor recruitment --------------
+
+model.4.b <- glm(disco_poor_recr ~ ASPIREprop_10 + samplesize_100 + Placebo_yes + 
+             singlecenter + Recruitpredict + Industry,
+             family = binomial(link = "logit"),
+             data = data[data$ECapproval_2016 == 1 & data$Discontinued != "NR", ])
+
+summary(model.4.b)
+
+# Naive SEs
+table_4_b_naive <- tidy(model.4.b, conf.int = TRUE, exponentiate = TRUE) |> 
+  filter(term != "(Intercept)") |> 
+  format_model_output() |> 
+  tt() 
+
+table_4_b_naive |> 
+  save_tt(output = "tables/table-4b-non-robust-se.docx", overwrite = TRUE)
+
+table_4_b_naive
+
+# Robust SEs
+table_4_b_robust <- coeftest(model.4.b,
+    vcov = vcovCL(model.4.b,
                 cluster = ~ country_ethics_committee,
                 type = "HC3")) |> 
   tidy(conf.int = TRUE) |> 
@@ -207,34 +351,25 @@ coeftest(model.4.a,
   format_model_output() |> 
   tt()
   
+table_4_b_robust |> 
+  save_tt(output = "tables/table-4b-robust-se.docx", overwrite = TRUE)
 
+table_4_b_robust
 
-# Discontinued due to poor recruitment --------------
+# Random intercept
 
-model.4.b <- glm(disco_poor_recr ~ ASPIREprop_10 + samplesize_100 + Placebo_yes + 
-             singlecenter + Recruitpredict + Industry,
+model.4.b.ri <- glmer(disco_poor_recr ~ ASPIREprop_10 + samplesize_100 + 
+                        Placebo_yes + singlecenter + Recruitpredict + Industry +
+                        (1 | country_ethics_committee),
              family = binomial(link = "logit"),
              data = data[data$ECapproval_2016 == 1 & data$Discontinued != "NR", ])
 
-summary(model.4.b)
+summary(model.4.b.ri) # Fails to estimate variance of random intercept
 
-tidy(model.4.b, conf.int = TRUE, exponentiate = TRUE) |> 
+
+summary(model.4.b.ri)$coefficients |> 
+  format_mult_model_output () |> 
   filter(term != "(Intercept)") |> 
   format_model_output() |> 
-  tt() |> 
-  save_tt(output = "tables/table-4-non-robust-se.docx")
-
-coeftest(model.4.b,
-    vcov = vcovCL(model.4.b,
-                cluster = ~ country_ethics_committee,
-                type = "HC3")) |> 
-  tidy(conf.int = TRUE) |> 
-  mutate(estimate = exp(estimate),
-         conf.low = exp(conf.low),
-         conf.high = exp(conf.high)) |> 
-  filter(term != "(Intercept)") |> 
-  format_model_output() |> 
-  tt() |> 
-  save_tt(output = "tables/table-4-robust-se.docx")
+  tt()
 ```
-
